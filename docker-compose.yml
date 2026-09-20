@@ -1,0 +1,23 @@
+services:
+  ragflow-auth-proxy:
+    build:
+      context: .
+      args:
+        # 国内构建加速：在 .env 中设置 PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-}
+    image: ragflow-auth-proxy:1.0.0
+    container_name: ragflow-auth-proxy
+    restart: unless-stopped
+    ports:
+      - "${PUBLISH_PORT:-8000}:8000"
+    env_file:
+      - .env
+    volumes:
+      # 命名卷持久化 SQLite 数据库与管理员令牌文件
+      - ragflow_auth_data:/data
+    # 当 RAGFlow 部署在宿主机时，可用 http://host.docker.internal:9380 访问
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  ragflow_auth_data:

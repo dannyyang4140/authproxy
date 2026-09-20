@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RAGFlow 鉴权代理 · 管理台</title>
+<style>
+  :root { --bd:#d8e0e8; --blue:#1f6f8b; --bg:#f4f7fa; --ok:#2f855a; --deny:#c53030; --muted:#6b7785; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,"PingFang SC","Microsoft YaHei",Segoe UI,sans-serif; background:var(--bg); color:#1a202c; font-size:14px; }
+  header { background:var(--blue); color:#fff; padding:14px 20px; font-size:17px; font-weight:700; }
+  main { max-width:1080px; margin:18px auto; padding:0 16px; }
+  .card { background:#fff; border:1px solid var(--bd); border-radius:10px; padding:16px; margin-bottom:18px; }
+  .card h2 { font-size:15px; margin:0 0 12px; color:var(--blue); }
+  label { display:block; font-size:12px; color:var(--muted); margin:8px 0 4px; }
+  input,select,textarea { width:100%; padding:8px 10px; border:1px solid var(--bd); border-radius:6px; font-size:13px; font-family:inherit; }
+  textarea { min-height:54px; resize:vertical; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; }
+  .row > div { flex:1; min-width:150px; }
+  button { cursor:pointer; border:none; border-radius:6px; padding:8px 14px; font-size:13px; font-family:inherit; }
+  .btn-primary { background:var(--blue); color:#fff; }
+  .btn-sm { padding:4px 9px; font-size:12px; border-radius:5px; }
+  .btn-off { background:#edf2f7; color:#4a5568; }
+  .btn-del { background:#fff5f5; color:var(--deny); border:1px solid #feb2b2; }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  th,td { text-align:left; padding:8px 8px; border-bottom:1px solid #edf0f3; vertical-align:top; }
+  th { color:var(--muted); font-weight:600; white-space:nowrap; }
+  .tag { display:inline-block; padding:1px 7px; border-radius:10px; font-size:11px; }
+  .tag-on { background:#f0fff4; color:var(--ok); border:1px solid #9ae6b4; }
+  .tag-off { background:#f7fafc; color:#a0aec0; border:1px solid #e2e8f0; }
+  .tag-allow { background:#f0fff4; color:var(--ok); }
+  .tag-deny { background:#fff5f5; color:var(--deny); }
+  .muted { color:var(--muted); }
+  .secret { background:#fffbe6; border:1px solid #f6e05e; border-radius:8px; padding:10px; margin-top:10px; word-break:break-all; font-family:ui-monospace,Menlo,monospace; }
+  .pill { font-family:ui-monospace,Menlo,monospace; background:#edf2f7; border-radius:4px; padding:1px 5px; }
+  .toast { position:fixed; right:18px; bottom:18px; background:#2d3748; color:#fff; padding:10px 14px; border-radius:8px; opacity:0; transition:.25s; max-width:340px; }
+  .toast.show { opacity:.96; }
+  .ds { max-width:200px; word-break:break-all; }
+</style>
+</head>
+<body>
+<header>RAGFlow 鉴权代理 · 访问令牌管理台</header>
+<main>
+  <div class="card">
+    <h2>① 管理员登录</h2>
+    <div class="row">
+      <div style="flex:3;">
+        <label>管理员令牌（ADMIN_TOKEN，仅保存在本浏览器 localStorage）</label>
+        <input id="adminToken" type="password" placeholder="粘贴 ADMIN_TOKEN" />
+      </div>
+      <div style="flex:1; display:flex; align-items:flex-end;">
+        <button class="btn-primary" style="width:100%;" onclick="saveAdmin()">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>② 签发访问令牌（分配给成员 / AI Agent）</h2>
+    <div class="row">
+      <div><label>名称 *</label><input id="f_name" placeholder="如：法务小张 / 客服Agent" /></div>
+      <div style="flex:1; min-width:120px;">
+        <label>权限级别</label>
+        <select id="f_scope">
+          <option value="retrieve">retrieve（检索/对话）</option>
+          <option value="write">write（含上传/改文档）</option>
+          <option value="admin">admin（含建删知识库）</option>
+        </select>
+      </div>
+      <div style="flex:1; min-width:120px;"><label>有效天数（空=永久）</label><input id="f_days" type="number" min="1" placeholder="如 90" /></div>
+      <div style="flex:1; min-width:120px;"><label>每分钟限流（0=不限）</label><input id="f_rate" type="number" min="0" value="0" /></div>
+    </div>
+    <label>可访问数据集 ID（逗号或换行分隔；填 * 表示全部）</label>
+    <textarea id="f_datasets" placeholder="ds_001, ds_002&#10;ds_003"></textarea>
+    <label>备注</label>
+    <input id="f_note" placeholder="可选" />
+    <div style="margin-top:12px;"><button class="btn-primary" onclick="createToken()">签发令牌</button></div>
+    <div id="newSecret" class="secret" style="display:none;"></div>
+  </div>
+
+  <div class="card">
+    <h2 style="display:flex; justify-content:space-between; align-items:center;">
+      <span>③ 访问令牌列表</span>
+      <button class="btn-sm btn-off" onclick="loadTokens()">刷新</button>
+    </h2>
+    <div style="overflow-x:auto;">
+      <table>
+        <thead><tr><th>名称</th><th>前缀</th><th>权限</th><th>可访问数据集</th><th>状态</th><th>有效期至</th><th>限流/分</th><th>操作</th></tr></thead>
+        <tbody id="tokenBody"><tr><td colspan="8" class="muted">加载中…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 style="display:flex; justify-content:space-between; align-items:center;">
+      <span>④ 最近审计日志</span>
+      <button class="btn-sm btn-off" onclick="loadAudit()">加载最近 50 条</button>
+    </h2>
+    <div style="overflow-x:auto;">
+      <table>
+        <thead><tr><th>时间</th><th>主体</th><th>方法</th><th>路径</th><th>动作</th><th>数据集</th><th>决策</th><th>状态</th><th>原因</th></tr></thead>
+        <tbody id="auditBody"><tr><td colspan="9" class="muted">点击上方按钮加载</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</main>
+<div id="toast" class="toast"></div>
+
+<script>
+function adminToken(){ return localStorage.getItem('rap_admin_token') || ''; }
+function saveAdmin(){ localStorage.setItem('rap_admin_token', document.getElementById('adminToken').value.trim()); toast('已保存管理员令牌'); loadTokens(); }
+function toast(msg, isErr){ var t=document.getElementById('toast'); t.textContent=msg; t.style.background=isErr?'#c53030':'#2d3748'; t.classList.add('show'); setTimeout(function(){t.classList.remove('show');},2600); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+function fmtTime(s){ return s? new Date(s).toLocaleString('zh-CN',{hour12:false}) : '-'; }
+
+async function api(path, opts){
+  opts = opts || {};
+  opts.headers = Object.assign({'X-Admin-Token': adminToken(), 'Content-Type':'application/json'}, opts.headers||{});
+  var resp = await fetch(path, opts);
+  if(resp.status===204) return null;
+  var data = null; try{ data = await resp.json(); }catch(e){}
+  if(!resp.ok){ throw new Error((data && (data.detail || data.message)) || ('请求失败 '+resp.status)); }
+  return data;
+}
+
+async function createToken(){
+  var name=document.getElementById('f_name').value.trim();
+  if(!name){ toast('请填写名称', true); return; }
+  var dsRaw=document.getElementById('f_datasets').value;
+  var datasets=dsRaw.split(/[\s,，]+/).map(function(s){return s.trim();}).filter(Boolean);
+  var days=document.getElementById('f_days').value;
+  var body={
+    name:name, datasets:datasets,
+    scope:document.getElementById('f_scope').value,
+    rate_limit_per_min:parseInt(document.getElementById('f_rate').value||'0',10),
+    note:document.getElementById('f_note').value.trim()
+  };
+  if(days){ var d=new Date(Date.now()+parseInt(days,10)*86400000); body.expires_at=d.toISOString(); }
+  try{
+    var t=await api('/admin/tokens',{method:'POST',body:JSON.stringify(body)});
+    var box=document.getElementById('newSecret');
+    box.style.display='block';
+    box.innerHTML='<b>令牌明文（仅显示一次，请立即复制并安全保存）：</b><br>'+esc(t.token)+
+      '<br><button class="btn-sm btn-off" style="margin-top:6px;" onclick="navigator.clipboard.writeText(\''+t.token+'\');toast(\'已复制\')">复制</button>';
+    document.getElementById('f_name').value=''; document.getElementById('f_datasets').value=''; document.getElementById('f_note').value='';
+    loadTokens(); toast('已签发');
+  }catch(e){ toast(e.message, true); }
+}
+
+async function loadTokens(){
+  if(!adminToken()){ document.getElementById('tokenBody').innerHTML='<tr><td colspan="8" class="muted">请先填写并保存管理员令牌</td></tr>'; return; }
+  try{
+    var rows=await api('/admin/tokens');
+    if(!rows.length){ document.getElementById('tokenBody').innerHTML='<tr><td colspan="8" class="muted">暂无令牌</td></tr>'; return; }
+    document.getElementById('tokenBody').innerHTML=rows.map(function(t){
+      var status=t.enabled?'<span class="tag tag-on">启用</span>':'<span class="tag tag-off">停用</span>';
+      var act=t.enabled
+        ? '<button class="btn-sm btn-off" onclick="setEnabled(\''+t.id+'\',false)">停用</button>'
+        : '<button class="btn-sm btn-off" onclick="setEnabled(\''+t.id+'\',true)">启用</button>';
+      return '<tr>'+
+        '<td>'+esc(t.name)+(t.note?'<div class="muted">'+esc(t.note)+'</div>':'')+'</td>'+
+        '<td><span class="pill">'+esc(t.token_prefix)+'…</span></td>'+
+        '<td>'+esc(t.scope)+'</td>'+
+        '<td class="ds">'+(t.datasets.indexOf('*')>=0?'<b>*（全部）</b>':esc(t.datasets.join(', ')||'-'))+'</td>'+
+        '<td>'+status+'</td>'+
+        '<td>'+fmtTime(t.expires_at)+'</td>'+
+        '<td>'+(t.rate_limit_per_min||'不限')+'</td>'+
+        '<td>'+act+' <button class="btn-sm btn-del" onclick="del(\''+t.id+'\')">删除</button></td>'+
+      '</tr>';
+    }).join('');
+  }catch(e){ document.getElementById('tokenBody').innerHTML='<tr><td colspan="8" class="muted">'+esc(e.message)+'</td></tr>'; }
+}
+
+async function setEnabled(id, enabled){
+  try{ await api('/admin/tokens/'+id,{method:'PATCH',body:JSON.stringify({enabled:enabled})}); loadTokens(); toast(enabled?'已启用':'已停用'); }
+  catch(e){ toast(e.message,true); }
+}
+async function del(id){
+  if(!confirm('确认删除该令牌？删除后立即失效且不可恢复。')) return;
+  try{ await api('/admin/tokens/'+id,{method:'DELETE'}); loadTokens(); toast('已删除'); }
+  catch(e){ toast(e.message,true); }
+}
+
+async function loadAudit(){
+  if(!adminToken()){ toast('请先保存管理员令牌',true); return; }
+  try{
+    var rows=await api('/admin/audit?limit=50');
+    if(!rows.length){ document.getElementById('auditBody').innerHTML='<tr><td colspan="9" class="muted">暂无日志</td></tr>'; return; }
+    document.getElementById('auditBody').innerHTML=rows.map(function(a){
+      var dec=a.decision==='allow'?'<span class="tag tag-allow">allow</span>':'<span class="tag tag-deny">deny</span>';
+      return '<tr><td>'+fmtTime(a.ts)+'</td><td>'+esc(a.token_name)+'</td><td>'+esc(a.method)+'</td>'+
+        '<td style="max-width:220px;word-break:break-all;">'+esc(a.path)+'</td><td>'+esc(a.action)+'</td>'+
+        '<td class="ds">'+esc((a.datasets||[]).join(', '))+'</td><td>'+dec+'</td><td>'+esc(a.status_code)+'</td>'+
+        '<td class="ds">'+esc(a.reason)+'</td></tr>';
+    }).join('');
+  }catch(e){ toast(e.message,true); }
+}
+
+(function(){ var saved=adminToken(); if(saved) document.getElementById('adminToken').value=saved; loadTokens(); })();
+</script>
+</body>
+</html>
